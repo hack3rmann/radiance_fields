@@ -22,17 +22,21 @@ pub struct Cell {
 
 impl Cell {
     pub fn eval_sh(direction: Vec3, sh: &[f32; SPHERICAL_HARMONIC_WIDTH]) -> f32 {
-        let sh_coeffs = [
-            0.28209479,
-            -0.48860251 * direction.y,
-            0.48860251 * direction.z,
-            -0.48860251 * direction.x,
-            1.0925484 * direction.x * direction.y,
-            -1.0925484 * direction.y * direction.z,
-            0.9461747 * direction.z * direction.z - 0.31539157,
-            -1.0925484 * direction.x * direction.z,
-            0.5462742 * (direction.x.powi(2) - direction.y.powi(2)),
-        ];
+        let mut sh_coeffs = {
+            let [x, y, z] = direction.to_array();
+
+            [
+                0.28209479,
+                -0.48860251 * y,
+                0.48860251 * z,
+                -0.48860251 * x,
+                1.0925484 * x * y,
+                -1.0925484 * y * z,
+                0.31539157 * (2.0 * z * z - x * x - y * y),
+                -1.0925484 * x * z,
+                0.5462742 * (x * x - y * y),
+            ]
+        };
 
         let maybe_sum = sh.iter().zip(&sh_coeffs)
             .map(|(&l, &r)| l * r)
@@ -121,17 +125,31 @@ impl RadianceField {
     }
 
     pub fn eval(&self, mut pos: Vec3, direction: Vec3) -> Option<(Vec3, f32)> {
+        const EPS: f32 = 0.01;
+
+        if pos.x < EPS || pos.y < EPS || pos.z < EPS
+            || pos.x > 1.0 - EPS || pos.y > 1.0 - EPS || pos.z > 1.0 - EPS
+        {
+            return None;
+        }
+
         pos *= self.size() as f32;
+        
+        let lo_index = [
+            pos.x.floor() as usize,
+            pos.y.floor() as usize,
+            pos.z.floor() as usize,
+        ];
 
         let indices = [
-            [pos.x.trunc() as usize, pos.y.trunc() as usize, pos.z.trunc() as usize],
-            [pos.x.trunc() as usize, pos.y.trunc() as usize, pos.z.ceil() as usize],
-            [pos.x.trunc() as usize, pos.y.ceil() as usize, pos.z.trunc() as usize],
-            [pos.x.trunc() as usize, pos.y.ceil() as usize, pos.z.ceil() as usize],
-            [pos.x.ceil() as usize, pos.y.trunc() as usize, pos.z.trunc() as usize],
-            [pos.x.ceil() as usize, pos.y.trunc() as usize, pos.z.ceil() as usize],
-            [pos.x.ceil() as usize, pos.y.ceil() as usize, pos.z.trunc() as usize],
-            [pos.x.ceil() as usize, pos.y.ceil() as usize, pos.z.ceil() as usize],
+            [lo_index[0], lo_index[1], lo_index[2]],
+            [lo_index[0], lo_index[1], lo_index[2] + 1],
+            [lo_index[0], lo_index[1] + 1, lo_index[2]],
+            [lo_index[0], lo_index[1] + 1, lo_index[2] + 1],
+            [lo_index[0] + 1, lo_index[1], lo_index[2]],
+            [lo_index[0] + 1, lo_index[1], lo_index[2] + 1],
+            [lo_index[0] + 1, lo_index[1] + 1, lo_index[2]],
+            [lo_index[0] + 1, lo_index[1] + 1, lo_index[2] + 1],
         ];
 
         let values = indices.map(|i| self.get(i));
@@ -144,7 +162,7 @@ impl RadianceField {
         // 
         // There is no `None` value due to check above
         let values = values.map(|value| unsafe { value.unwrap_unchecked() });
-        let coeffs = pos.fract().to_array();
+        let coeffs = pos.fract_gl().to_array();
         let cell = Cell::trilerp(values, coeffs);
 
         Some((cell.color(direction), cell.density))

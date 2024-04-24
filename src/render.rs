@@ -22,7 +22,7 @@ pub struct RaymarchSettings {
 
 impl Default for RaymarchSettings {
     fn default() -> Self {
-        Self { n_steps: 1_000 }
+        Self { n_steps: 100 }
     }
 }
 
@@ -43,11 +43,12 @@ pub fn raymarch(
     for pos in positions {
         let (cur_color, density) = get_info(pos, rd);
 
-        let cur_color = cur_color.clamp(Vec3::ZERO, Vec3::ONE);
-        let density = density.max(0.0);
+        if density <= 0.0 { continue }
 
+        let cur_color = cur_color.clamp(Vec3::ZERO, Vec3::ONE);
+
+        color += cur_color * (1.0 - f32::exp(-density * step_size)) * f32::exp(-density_sum);
         density_sum += step_size * density;
-        color += cur_color * step_size * density * f32::exp(-density_sum);
     }
 
     color
@@ -67,12 +68,14 @@ pub struct Camera {
 
 impl Default for Camera {
     fn default() -> Self {
+        let distance = 1.25;
+
         Self {
-            distance: 1.0,
-            theta: 0.5 * std::f32::consts::PI,
+            distance,
+            theta: 1.8,
             phi: 1.0 * std::f32::consts::FRAC_PI_2,
-            target_pos: Vec3::ZERO - 0.05 * Vec3::Y,
-            vfov: 1.0 * std::f32::consts::FRAC_PI_3,
+            target_pos: Vec3::ZERO,
+            vfov: (1.0 / distance) * std::f32::consts::FRAC_PI_3,
         }
     }
 }
