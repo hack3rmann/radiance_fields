@@ -46,8 +46,8 @@ pub fn render_image_cpu(screen_width: usize, screen_height: usize, field: &Radia
 
 #[tokio::main]
 async fn main() -> AnyResult<()> {
-    let screen_width = 1024;
-    let screen_height = 1024;
+    let screen_width = 2520;
+    let screen_height = 1680;
 
     let field = bincode::deserialize::<RadianceField>(
         &tokio::fs::read("assets/model.bin").await?,

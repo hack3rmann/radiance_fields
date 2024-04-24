@@ -49,22 +49,24 @@ impl Cell {
         unsafe { maybe_sum.unwrap_unchecked() }
     }
 
-    pub fn color(&self, direction: Vec3) -> Vec3 {
-        vec3(
+    pub fn eval(&self, direction: Vec3) -> CellValue {
+        CellValue::new(vec3(
             Self::eval_sh(direction, &self.sh_r),
             Self::eval_sh(direction, &self.sh_g),
             Self::eval_sh(direction, &self.sh_b),
-        )
+        ), self.density)
     }
 
     pub fn trilerp(values: [&Self; 8], [x, y, z]: [f32; 3]) -> Self {
-        *values[0b000] * (1.0 - x) * (1.0 - y) * (1.0 - z)
-            + *values[0b001] * (1.0 - x) * (1.0 - y) * z
-            + *values[0b010] * (1.0 - x) * y * (1.0 - z)
-            + *values[0b011] * (1.0 - x) * y * z
-            + *values[0b100] * x * (1.0 - y) * (1.0 - z)
-            + *values[0b101] * x * (1.0 - y) * z
-            + *values[0b110] * x * y * (1.0 - z)
+        let (nx, ny, nz) = (1.0 - x, 1.0 - y, 1.0 - z);
+
+        *values[0b000] * nx * ny * nz
+            + *values[0b001] * nx * ny * z
+            + *values[0b010] * nx * y * nz
+            + *values[0b011] * nx * y * z
+            + *values[0b100] * x * ny * nz
+            + *values[0b101] * x * ny * z
+            + *values[0b110] * x * y * nz
             + *values[0b111] * x * y * z
     }
 }
@@ -97,6 +99,33 @@ impl std::ops::Mul<f32> for Cell {
 
 
 
+#[repr(C)]
+#[derive(Clone, Debug, Default, PartialEq, Copy)]
+#[derive(Serialize, Deserialize)]
+#[derive(Pod, Zeroable)]
+pub struct CellValue {
+    pub color: Vec3,
+    pub density: f32,
+}
+
+impl CellValue {
+    pub const fn new(color: Vec3, density: f32) -> Self {
+        Self { color, density }
+    }
+}
+
+
+
+#[derive(Clone, Debug, Default, PartialEq, Copy, Eq, PartialOrd, Ord, Hash)]
+#[derive(Serialize, Deserialize)]
+pub enum Filtering {
+    Nearest,
+    #[default]
+    Trilinear,
+}
+
+
+
 #[derive(Clone, Default, Debug, PartialEq)]
 #[derive(Serialize, Deserialize)]
 pub struct RadianceField {
@@ -110,13 +139,12 @@ impl RadianceField {
     }
 
     /// Evaluates spherical harmonic by 3D index
-    pub fn eval_by_index(&self, index: [usize; 3], direction: Vec3) -> Option<(Vec3, f32)> {
-        let cell = self.get(index)?;
-        Some((cell.color(direction), cell.density))
+    pub fn eval_by_index(&self, index: [usize; 3], direction: Vec3) -> Option<CellValue> {
+        Some(self.get(index)?.eval(direction))
     }
 
     /// Evaluates spherical harmonic by a position in the [0, 1]^3 cube
-    pub fn eval_near(&self, pos: Vec3, direction: Vec3) -> Option<(Vec3, f32)> {
+    pub fn eval_near(&self, pos: Vec3, direction: Vec3) -> Option<CellValue> {
         let index = (self.size as f32 * pos)
             .to_array()
             .map(|f| f as usize);
@@ -124,7 +152,7 @@ impl RadianceField {
         self.eval_by_index(index, direction)
     }
 
-    pub fn eval(&self, mut pos: Vec3, direction: Vec3) -> Option<(Vec3, f32)> {
+    pub fn eval_trilinear(&self, mut pos: Vec3, direction: Vec3) -> Option<CellValue> {
         const EPS: f32 = 0.01;
 
         if pos.x < EPS || pos.y < EPS || pos.z < EPS
@@ -141,6 +169,10 @@ impl RadianceField {
             pos.z.floor() as usize,
         ];
 
+        if lo_index.iter().any(|&i| i + 1 >= self.size()) {
+            return None;
+        }
+
         let indices = [
             [lo_index[0], lo_index[1], lo_index[2]],
             [lo_index[0], lo_index[1], lo_index[2] + 1],
@@ -152,20 +184,23 @@ impl RadianceField {
             [lo_index[0] + 1, lo_index[1] + 1, lo_index[2] + 1],
         ];
 
-        let values = indices.map(|i| self.get(i));
-
-        if values.iter().any(Option::is_none) {
-            return None;
-        }
-
         // # Safety
         // 
-        // There is no `None` value due to check above
-        let values = values.map(|value| unsafe { value.unwrap_unchecked() });
+        // We manually checked that index in bounds,
+        // so it is safe to get without checks
+        let values = indices.map(|i| unsafe { self.get_unchecked(i) });
         let coeffs = pos.fract_gl().to_array();
         let cell = Cell::trilerp(values, coeffs);
 
-        Some((cell.color(direction), cell.density))
+        Some(cell.eval(direction))
+    }
+
+    /// Evaluates spherical harmonic on the 3D cube [0, 1]^3
+    pub fn eval(&self, pos: Vec3, direction: Vec3, filtering: Filtering) -> Option<CellValue> {
+        match filtering {
+            Filtering::Nearest => self.eval_near(pos, direction),
+            Filtering::Trilinear => self.eval_trilinear(pos, direction),
+        }
     }
 
     /// Calculates index in 3D array
@@ -174,11 +209,25 @@ impl RadianceField {
     }
 
     pub fn get(&self, index: [usize; 3]) -> Option<&Cell> {
-        self.cells.get(Self::index_of(self.size, index))
+        self.cells.get(Self::index_of(self.size(), index))
+    }
+
+    /// # Safety
+    /// 
+    /// See `std::slice::get_unchecked`.
+    pub unsafe fn get_unchecked(&self, index: [usize; 3]) -> &Cell {
+        self.cells.get_unchecked(Self::index_of(self.size(), index))
     }
 
     pub fn get_mut(&mut self, index: [usize; 3]) -> Option<&mut Cell> {
         self.cells.get_mut(Self::index_of(self.size, index))
+    }
+
+    /// # Safety
+    /// 
+    /// See `std::slice::get_unchecked_mut`
+    pub unsafe fn get_unchecked_mut(&mut self, index: [usize; 3]) -> &mut Cell {
+        self.cells.get_unchecked_mut(Self::index_of(self.size, index))
     }
 }
 

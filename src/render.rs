@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 use glam::*;
-use crate::{geometry, spherical::RadianceField};
+use crate::{geometry, spherical::{RadianceField, Filtering, CellValue}};
 
 
 
@@ -28,7 +28,7 @@ impl Default for RaymarchSettings {
 
 pub fn raymarch(
     ro: Vec3, rd: Vec3, near: f32, far: f32,
-    mut get_info: impl FnMut(Vec3, Vec3) -> (Vec3, f32),
+    mut get_info: impl FnMut(Vec3, Vec3) -> CellValue,
     settings: RaymarchSettings,
 ) -> Vec3 {
     let step_size = (far - near) / settings.n_steps as f32;
@@ -41,7 +41,7 @@ pub fn raymarch(
     let mut density_sum = 0.0;
 
     for pos in positions {
-        let (cur_color, density) = get_info(pos, rd);
+        let CellValue { color: cur_color, density } = get_info(pos, rd);
 
         if density <= 0.0 { continue }
 
@@ -115,11 +115,8 @@ pub fn get_color(
         ray_origin, ray_direction, -0.5 * Vec3::ONE, 0.5 * Vec3::ONE,
     ) else { return Vec3::ZERO };
 
-    let color_fn = |ro: Vec3, rd: Vec3| -> (Vec3, f32) {
-        let (color, density) = field.eval(ro + 0.5, rd)
-            .unwrap_or((Vec3::ZERO, 0.0));
-
-        (color, density)
+    let color_fn = |ro: Vec3, rd: Vec3| -> CellValue {
+        field.eval(ro + 0.5, rd, Filtering::Trilinear).unwrap_or_default()
     };
 
     let color = raymarch(ray_origin, ray_direction, near, far, color_fn, cfg.rm_settings);
