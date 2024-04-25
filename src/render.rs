@@ -66,13 +66,18 @@ pub struct Camera {
     vfov: f32,
 }
 
+impl Camera {
+    pub const DEFAULT_DISTANCE: f32 = 1.3;
+    pub const VALID_THETAS: [f32; 7] = [0.0, 0.9, 1.8, 2.7, 3.6, 4.5, 5.4];
+}
+
 impl Default for Camera {
     fn default() -> Self {
-        let distance = 1.25;
+        let distance = Self::DEFAULT_DISTANCE;
 
         Self {
             distance,
-            theta: 1.8,
+            theta: Self::VALID_THETAS[0],
             phi: 1.0 * std::f32::consts::FRAC_PI_2,
             target_pos: Vec3::ZERO,
             vfov: (1.0 / distance) * std::f32::consts::FRAC_PI_3,

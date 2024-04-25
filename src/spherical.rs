@@ -21,53 +21,54 @@ pub struct Cell {
 }
 
 impl Cell {
-    pub fn eval_sh(direction: Vec3, sh: &[f32; SPHERICAL_HARMONIC_WIDTH]) -> f32 {
-        let mut sh_coeffs = {
-            let [x, y, z] = direction.to_array();
+    pub fn values_from_direction(direction: Vec3) -> [f32; SPHERICAL_HARMONIC_WIDTH] {
+        let [x, y, z] = direction.to_array();
 
-            [
-                0.28209479,
-                -0.48860251 * y,
-                0.48860251 * z,
-                -0.48860251 * x,
-                1.0925484 * x * y,
-                -1.0925484 * y * z,
-                0.31539157 * (2.0 * z * z - x * x - y * y),
-                -1.0925484 * x * z,
-                0.5462742 * (x * x - y * y),
-            ]
-        };
-
-        let maybe_sum = sh.iter().zip(&sh_coeffs)
+        [
+            0.28209479,
+            -0.48860251 * y,
+            0.48860251 * z,
+            -0.48860251 * x,
+            1.0925484 * x * y,
+            -1.0925484 * y * z,
+            0.31539157 * (2.0 * z * z - x * x - y * y),
+            -1.0925484 * x * z,
+            0.5462742 * (x * x - y * y),
+        ]
+    }
+    
+    pub fn eval_sh(
+        direction_values: &[f32; SPHERICAL_HARMONIC_WIDTH],
+        sh: &[f32; SPHERICAL_HARMONIC_WIDTH],
+    ) -> f32 {
+        let maybe_sum = sh.iter().zip(direction_values)
             .map(|(&l, &r)| l * r)
             .reduce(std::ops::Add::add);
 
         // # Safety
         // 
         // `reduce` returns `None` only if iterator is empty,
-        // but it contains exactly `SPHERICAL_HARMONIC_WIDTH` != 0 elements.
+        // but it contains exactly `SPHERICAL_HARMONIC_WIDTH` (== 9) != 0 elements.
         unsafe { maybe_sum.unwrap_unchecked() }
     }
 
     pub fn eval(&self, direction: Vec3) -> CellValue {
+        let direction_values = Self::values_from_direction(direction);
+
         CellValue::new(vec3(
-            Self::eval_sh(direction, &self.sh_r),
-            Self::eval_sh(direction, &self.sh_g),
-            Self::eval_sh(direction, &self.sh_b),
+            Self::eval_sh(&direction_values, &self.sh_r),
+            Self::eval_sh(&direction_values, &self.sh_g),
+            Self::eval_sh(&direction_values, &self.sh_b),
         ), self.density)
     }
 
     pub fn trilerp(values: [&Self; 8], [x, y, z]: [f32; 3]) -> Self {
         let (nx, ny, nz) = (1.0 - x, 1.0 - y, 1.0 - z);
 
-        *values[0b000] * nx * ny * nz
-            + *values[0b001] * nx * ny * z
-            + *values[0b010] * nx * y * nz
-            + *values[0b011] * nx * y * z
-            + *values[0b100] * x * ny * nz
-            + *values[0b101] * x * ny * z
-            + *values[0b110] * x * y * nz
-            + *values[0b111] * x * y * z
+        ((*values[0b000] * nz + *values[0b001] * z) * ny
+            + (*values[0b010] * nz + *values[0b011] * z) * y) * nx
+            + ((*values[0b100] * nz + *values[0b101] * z) * ny
+            + (*values[0b110] * nz + *values[0b111] * z) * y) * x
     }
 }
 
@@ -94,6 +95,14 @@ impl std::ops::Mul<f32> for Cell {
             sh_g: self.sh_g.map(|x| rhs * x),
             sh_b: self.sh_b.map(|x| rhs * x),
         }
+    }
+}
+
+impl std::ops::Mul<Cell> for f32 {
+    type Output = Cell;
+
+    fn mul(self, rhs: Cell) -> Self::Output {
+        rhs.mul(self)
     }
 }
 
