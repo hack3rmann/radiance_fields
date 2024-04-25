@@ -55,7 +55,7 @@ async fn main() -> AnyResult<()> {
         &tokio::fs::read("assets/model.bin").await?,
     )?;
 
-    let mut video_file = std::fs::File::create("target/result.gif")?;
+    let mut video_file = std::fs::File::create("output/result.gif")?;
     let mut encoder = gif::Encoder::new(
         &mut video_file,
         screen_width as u16,

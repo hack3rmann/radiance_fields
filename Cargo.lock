@@ -315,25 +315,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 
 [[package]]
-name = "light_fields"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "array-init",
- "bincode",
- "bytemuck",
- "clap",
- "gif",
- "glam",
- "kdam",
- "png",
- "rayon",
- "serde",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "linux-raw-sys"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -453,6 +434,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fa76aaf39101c457836aec0ce2316dbdc3ab723cdda1c6bd4e6ad4208acaca7"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "radiance_fields"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "array-init",
+ "bincode",
+ "bytemuck",
+ "clap",
+ "gif",
+ "glam",
+ "kdam",
+ "png",
+ "rayon",
+ "serde",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
