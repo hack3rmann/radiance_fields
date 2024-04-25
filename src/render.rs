@@ -1,6 +1,7 @@
-use serde::{Serialize, Deserialize};
-use glam::*;
 use crate::{geometry, spherical::{RadianceField, Filtering, CellValue}};
+use serde::{Serialize, Deserialize};
+use bytemuck::{Pod, Zeroable};
+use glam::*;
 
 
 
@@ -56,14 +57,16 @@ pub fn raymarch(
 
 
 
+#[repr(C)]
 #[derive(Clone, Debug, PartialEq, Copy)]
 #[derive(Serialize, Deserialize)]
+#[derive(Pod, Zeroable)]
 pub struct Camera {
     distance: f32,
     theta: f32,
     phi: f32,
-    target_pos: Vec3,
     vfov: f32,
+    target_pos: Vec3,
 }
 
 impl Camera {

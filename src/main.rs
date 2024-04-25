@@ -37,10 +37,7 @@ pub fn render_image_cpu(screen_width: usize, screen_height: usize, field: &Radia
         .map(compact_color)
         .collect_into_vec(&mut image);
 
-    let image = image.into_boxed_slice();
-    let image: Box<[u8]> = bytemuck::allocation::cast_slice_box(image);
-    
-    image.into_vec()
+    bytemuck::allocation::cast_vec(image)
 }
 
 
