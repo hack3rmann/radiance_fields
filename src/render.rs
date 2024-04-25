@@ -18,12 +18,12 @@ pub fn spherical_to_cartesian(radius: f32, theta: f32, phi: f32) -> Vec3 {
 #[derive(Clone, Debug, PartialEq, Copy, Eq, Hash)]
 #[derive(Serialize, Deserialize)]
 pub struct RaymarchSettings {
-    n_steps: usize,
+    pub n_steps: usize,
 }
 
 impl Default for RaymarchSettings {
     fn default() -> Self {
-        Self { n_steps: 100 }
+        Self { n_steps: 300 }
     }
 }
 
@@ -42,13 +42,12 @@ pub fn raymarch(
     let mut density_sum = 0.0;
 
     for pos in positions {
-        let CellValue { color: cur_color, density } = get_info(pos, rd);
+        let CellValue { color: cell_color, density } = get_info(pos, rd);
 
-        if density <= 0.0 { continue }
+        color += cell_color
+            * f32::exp(-density_sum)
+            * (1.0 - f32::exp(-density * step_size));
 
-        let cur_color = cur_color.clamp(Vec3::ZERO, Vec3::ONE);
-
-        color += cur_color * (1.0 - f32::exp(-density * step_size)) * f32::exp(-density_sum);
         density_sum += step_size * density;
     }
 
@@ -62,28 +61,27 @@ pub fn raymarch(
 #[derive(Serialize, Deserialize)]
 #[derive(Pod, Zeroable)]
 pub struct Camera {
-    distance: f32,
-    theta: f32,
-    phi: f32,
-    vfov: f32,
-    target_pos: Vec3,
+    pub distance: f32,
+    pub theta: f32,
+    pub phi: f32,
+    pub vfov: f32,
+    pub target_pos: Vec3,
 }
 
 impl Camera {
     pub const DEFAULT_DISTANCE: f32 = 1.3;
     pub const VALID_THETAS: [f32; 7] = [0.0, 0.9, 1.8, 2.7, 3.6, 4.5, 5.4];
+    pub const DEFAULT_VFOV: f32 = std::f32::consts::FRAC_PI_4;
 }
 
 impl Default for Camera {
     fn default() -> Self {
-        let distance = Self::DEFAULT_DISTANCE;
-
         Self {
-            distance,
+            distance: Self::DEFAULT_DISTANCE,
             theta: Self::VALID_THETAS[0],
-            phi: 1.0 * std::f32::consts::FRAC_PI_2,
+            phi: std::f32::consts::FRAC_PI_3,
             target_pos: Vec3::ZERO,
-            vfov: (1.0 / distance) * std::f32::consts::FRAC_PI_3,
+            vfov: Self::DEFAULT_VFOV,
         }
     }
 }
@@ -93,8 +91,8 @@ impl Default for Camera {
 #[derive(Clone, Debug, PartialEq, Default, Copy)]
 #[derive(Serialize, Deserialize)]
 pub struct RenderConfiguration {
-    camera: Camera,
-    rm_settings: RaymarchSettings,
+    pub camera: Camera,
+    pub rm_settings: RaymarchSettings,
 }
 
 
@@ -124,10 +122,13 @@ pub fn get_color(
     ) else { return Vec3::ZERO };
 
     let color_fn = |ro: Vec3, rd: Vec3| -> CellValue {
-        field.eval(ro + 0.5, rd, Filtering::Trilinear).unwrap_or_default()
+        let mut value = field.eval(ro + 0.5, rd, Filtering::Trilinear).unwrap_or_default();
+
+        value.density = value.density.max(0.0);
+        value.color = Vec3::clamp(value.color * 0.5 + 0.5, Vec3::ZERO, Vec3::ONE);
+
+        value
     };
 
-    let color = raymarch(ray_origin, ray_direction, near, far, color_fn, cfg.rm_settings);
-
-    color.powf(0.4545)
+    raymarch(ray_origin, ray_direction, near, far, color_fn, cfg.rm_settings)
 }

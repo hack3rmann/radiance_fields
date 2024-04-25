@@ -138,7 +138,7 @@ pub enum Filtering {
 #[derive(Clone, Default, Debug, PartialEq)]
 #[derive(Serialize, Deserialize)]
 pub struct RadianceField {
-    size: usize,
+    pub size: usize,
     pub cells: Vec<Cell>,
 }
 
@@ -214,7 +214,7 @@ impl RadianceField {
 
     /// Calculates index in 3D array
     pub const fn index_of(size: usize, [x, y, z]: [usize; 3]) -> usize {
-        x + size * y + size * size * z
+        x + size * z + size * size * y
     }
 
     pub fn get(&self, index: [usize; 3]) -> Option<&Cell> {

@@ -7,6 +7,7 @@ pub mod spherical;
 use anyhow::{Result as AnyResult, Context as _};
 use rayon::prelude::*;
 use glam::*;
+use render::{Camera, RenderConfiguration};
 use spherical::RadianceField;
 
 
@@ -22,17 +23,20 @@ pub fn compact_color(mut color: Vec3) -> [u8; 4] {
     ]
 }
 
-pub fn render_image_cpu(screen_width: usize, screen_height: usize, field: &RadianceField) -> Vec<u8> {
+pub fn render_image_cpu(
+    screen_width: usize, screen_height: usize,
+    field: &RadianceField, cfg: &RenderConfiguration,
+) -> Vec<u8> {
     let mut image = Vec::with_capacity(screen_width * screen_height);
 
-    kdam::par_tqdm!((0..screen_width * screen_height).into_par_iter(), desc = "Rendering")
+    kdam::par_tqdm!((0..screen_width * screen_height).into_par_iter(), desc = "Rendering", position = 1)
         .map(|i| (i % screen_width, i / screen_width))
         .map(|(x, y)| vec2(
             ((2 * x) as f32 + 0.5) / (screen_width  - 1) as f32 - 1.0,
             ((2 * y) as f32 + 0.5) / (screen_height - 1) as f32 - 1.0,
         ))
         .map(|coord| render::get_color(
-            coord, screen_width, screen_height, field, &Default::default(),
+            coord, screen_width, screen_height, field, cfg,
         ))
         .map(compact_color)
         .collect_into_vec(&mut image);
@@ -41,29 +45,50 @@ pub fn render_image_cpu(screen_width: usize, screen_height: usize, field: &Radia
 }
 
 
+
 #[tokio::main]
 async fn main() -> AnyResult<()> {
-    let screen_width = 2520;
-    let screen_height = 1680;
+    let screen_width = 512;
+    let screen_height = 512;
 
     let field = bincode::deserialize::<RadianceField>(
         &tokio::fs::read("assets/model.bin").await?,
     )?;
 
-    let image = render_image_cpu(screen_width, screen_height, &field);
+    let mut video_file = std::fs::File::create("target/result.gif")?;
+    let mut encoder = gif::Encoder::new(
+        &mut video_file,
+        screen_width as u16,
+        screen_height as u16,
+        &[],
+    )?;
 
-    let file = std::fs::File::create("target/image.png")?;
+    encoder.set_repeat(gif::Repeat::Infinite)?;
 
-    let buf_writer = std::io::BufWriter::new(file);
+    const N_VIEWS: usize = 168;
 
-    let mut encoder = png::Encoder::new(
-        buf_writer, screen_width as u32, screen_height as u32,
-    );
+    for i in kdam::tqdm!(0..N_VIEWS, desc = "Rotating model") {
+        let mut image = render_image_cpu(
+            screen_width, screen_height, &field,
+            &RenderConfiguration {
+                camera: Camera {
+                    theta: (i as f32 / N_VIEWS as f32) * 2.0 * std::f32::consts::PI,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
 
-    encoder.set_color(png::ColorType::Rgba);
+        let mut frame = gif::Frame::from_rgba(
+            screen_width as u16, screen_height as u16, &mut image,
+        );
 
-    let mut writer = encoder.write_header()?;
-    writer.write_image_data(bytemuck::cast_slice(&image))?; 
+        frame.delay = 3;
+
+        encoder.write_frame(&frame)?;
+    }
+
+    println!("\n");
 
     Ok(())
 }
