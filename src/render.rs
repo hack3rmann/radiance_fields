@@ -117,9 +117,11 @@ pub fn get_color(
     );
     let ray_origin = camera_pos;
 
-    let Some((near, far)) = geometry::intersect_ray_box(
+    let Some((mut near, far)) = geometry::intersect_ray_box(
         ray_origin, ray_direction, -0.5 * Vec3::ONE, 0.5 * Vec3::ONE,
     ) else { return Vec3::ZERO };
+
+    near = near.max(0.0);
 
     let color_fn = |ro: Vec3, rd: Vec3| -> CellValue {
         let mut value = field.eval(ro + 0.5, rd, Filtering::Trilinear).unwrap_or_default();

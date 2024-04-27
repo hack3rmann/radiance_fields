@@ -48,8 +48,8 @@ pub fn render_image_cpu(
 
 #[tokio::main]
 async fn main() -> AnyResult<()> {
-    let screen_width = 512;
-    let screen_height = 512;
+    let screen_width = 1024;
+    let screen_height = 1024;
 
     let field = bincode::deserialize::<RadianceField>(
         &tokio::fs::read("assets/model.bin").await?,
@@ -72,7 +72,10 @@ async fn main() -> AnyResult<()> {
             screen_width, screen_height, &field,
             &RenderConfiguration {
                 camera: Camera {
-                    theta: (i as f32 / N_VIEWS as f32) * 2.0 * std::f32::consts::PI,
+                    theta: -(i as f32 / N_VIEWS as f32 + 0.5) * 4.0 * std::f32::consts::PI,
+                    phi: (i as f32 / N_VIEWS as f32 - 0.25) * 2.0 * std::f32::consts::PI,
+                    distance: 1.0 / ((i as f32 / N_VIEWS as f32) * 2.0 * std::f32::consts::PI).powi(2),
+                    target_pos: vec3(0.0, 0.15, 0.2),
                     ..Default::default()
                 },
                 ..Default::default()
