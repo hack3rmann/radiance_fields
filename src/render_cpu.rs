@@ -2,6 +2,7 @@ use crate::{geometry, spherical::{RadianceField, Filtering, CellValue}};
 use serde::{Serialize, Deserialize};
 use bytemuck::{Pod, Zeroable};
 use glam::*;
+use rayon::prelude::*;
 
 
 
@@ -133,4 +134,36 @@ pub fn get_color(
     };
 
     raymarch(ray_origin, ray_direction, near, far, color_fn, cfg.rm_settings)
+}
+
+pub fn compact_color(mut color: Vec4) -> [u8; 4] {
+    color = Vec4::clamp(255.0 * color, Vec4::ZERO, Vec4::splat(255.0));
+
+    [
+        color.x as u8,
+        color.y as u8,
+        color.z as u8,
+        color.w as u8,
+    ]
+}
+
+pub fn render_image_cpu(
+    screen_width: usize, screen_height: usize,
+    field: &RadianceField, cfg: &RenderConfiguration,
+) -> Vec<u8> {
+    let mut image = Vec::with_capacity(screen_width * screen_height);
+
+    kdam::par_tqdm!((0..screen_width * screen_height).into_par_iter(), desc = "Rendering", position = 1)
+        .map(|i| (i % screen_width, i / screen_width))
+        .map(|(x, y)| vec2(
+            ((2 * x) as f32 + 0.5) / (screen_width  - 1) as f32 - 1.0,
+            ((2 * y) as f32 + 0.5) / (screen_height - 1) as f32 - 1.0,
+        ))
+        .map(|coord| get_color(
+            coord, screen_width, screen_height, field, cfg,
+        ).extend(1.0))
+        .map(compact_color)
+        .collect_into_vec(&mut image);
+
+    bytemuck::allocation::cast_vec(image)
 }
