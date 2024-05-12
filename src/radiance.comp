@@ -48,24 +48,29 @@ struct RaymarchSettings {
 
 
 
+float max3(float a, float b, float c) {
+    return max(a, max(b, c));
+}
+
+float min3(float a, float b, float c) {
+    return min(a, min(b, c));
+}
+
 vec2 Aabb_intersect_ray(vec3 lo, vec3 hi, vec3 ro, vec3 rd) {
     vec3 inverse_rd = 1.0 / rd;
     
     vec3 lo = inverse_rd * (lo - ro);
     vec3 hi = inverse_rd * (hi - ro);
 
-    float near = max(
-        max(
-            min(lo.x, hi.x),
-            min(lo.y, hi.y)
-        ),
+    float near = max3(
+        min(lo.x, hi.x),
+        min(lo.y, hi.y),
         min(lo.z, hi.z)
     );
-    float far = min(
-        min(
-            max(lo.x, hi.x),
-            max(lo.y, hi.y)
-        ),
+
+    float far = min3(
+        max(lo.x, hi.x),
+        max(lo.y, hi.y),
         max(lo.z, hi.z)
     );
 
@@ -143,7 +148,7 @@ CellValue get_cell_value(Ray ray) {
     vec4 value = eval(ray.origin + 0.5, ray.direction);
     bool density_rendering = false;
 
-    return CellValue(vec3(1.0), 1.0);
+    return CellValue(vec3(1.0), 0.5);
 
     if (!density_rendering) {
         return CellValue(clamp(value.rgb * 0.5 + 0.5, 0.0, 1.0), max(value.a, 0.0));
@@ -172,7 +177,7 @@ vec4 raymarch(Ray ray, float near, float far) {
         density_sum += step_size * cell.density;
     }
 
-    return vec4(color, density_sum);
+    return vec4(color, exp(-density_sum));
 }
 
 Camera get_camera() {
@@ -194,6 +199,10 @@ vec4 get_color(vec2 screen_coord) {
     float near = hits.x;
     float far = hits.y;
 
+    if (near >= far) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
     return raymarch(ray, max(near, 0.0), far);
 }
 
@@ -211,12 +220,12 @@ void main() {
 
     ivec2 screen_id = ivec2(gl_GlobalInvocationID.xy);
 
-    vec4 color = get_color(screen_coord);
     vec4 prev_color = imageLoad(result_image, screen_id);
+    vec4 color = get_color(screen_coord);
 
     vec4 result_color = vec4(
-        prev_color.rgb + exp(-prev_color.a) * color.rgb,
-        prev_color.a + color.a
+        prev_color.rgb + prev_color.a * color.rgb,
+        prev_color.a * color.a
     );
 
     if (push.index == push.n_passes - 1) {

@@ -42,7 +42,7 @@ async fn main() -> AnyResult<()> {
 
     let cfg = RenderConfiguration {
         camera: Camera {
-            theta: 3.0 * std::f32::consts::PI / 4.0,
+            theta: 0.0 * (2.0 * std::f32::consts::PI),
             ..Default::default()
         },
         ..Default::default()

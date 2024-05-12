@@ -232,7 +232,7 @@ pub fn render_gpu(
         },
         TextureDataOrder::LayerMajor,
         bytemuck::cast_slice(
-            &vec![Vec4::ZERO; screen_width * screen_height]
+            &vec![Vec4::W; screen_width * screen_height]
         ),
     );
 
