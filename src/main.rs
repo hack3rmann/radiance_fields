@@ -7,7 +7,7 @@ pub mod benchmark;
 
 use anyhow::Result as AnyResult;
 use glam::*;
-use graphics::{Color, RenderTarget};
+use graphics::{Color, RenderTarget, RenderConfiguration};
 use render_gpu::GpuContextMode;
 use spherical::RadianceField;
 use clap::Parser;
@@ -43,9 +43,14 @@ async fn main() -> AnyResult<()> {
 
     eprintln!("Reading rendering configuration from file...");
 
-    let cfg = toml::from_str(
-        &tokio::fs::read_to_string("assets/render_configuration.toml").await?,
-    )?;
+    let cfg = {
+        let mut cfg: RenderConfiguration = toml::from_str(
+            &tokio::fs::read_to_string("assets/render_configuration.toml").await?,
+        )?;
+        
+        cfg.render_target = args.target as u32;
+        cfg
+    };
 
     eprintln!("Reading model from file...");
 
@@ -70,7 +75,7 @@ async fn main() -> AnyResult<()> {
         println!("{}", bench.total());
     }
 
-    let file = std::fs::File::create("output/result.png")?;
+    let file = std::fs::File::create(&args.out)?;
 
     let buf_writer = std::io::BufWriter::new(file);
 

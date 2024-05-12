@@ -69,9 +69,11 @@ impl std::fmt::Display for TotalTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Total time spent on: \n  - rendering: {:?}\n  - copying: {:?}",
+            "Time spent on: \n  - rendering: {:?}\n  - copying: {:?}\n\
+            Total: {:?}",
             self.render,
             self.copy,
+            self.render + self.copy,
         )
     }
 }
