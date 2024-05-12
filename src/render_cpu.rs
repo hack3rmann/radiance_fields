@@ -1,7 +1,7 @@
 use crate::{
-    spherical::{CellValue, Filtering, RadianceField},
-    graphics::{Color, RenderConfiguration, RaymarchSettings},
-    geometry::Intersect as _,
+    benchmark::Bench, geometry::Intersect as _, graphics::{
+        Color, RaymarchSettings, RenderConfiguration, RENDER_TARGET_COLOR, RENDER_TARGET_DENSITY
+    }, spherical::{CellValue, Filtering, RadianceField}
 };
 use glam::*;
 use rayon::prelude::*;
@@ -53,7 +53,13 @@ pub fn get_color(
         let mut value = field.eval(ro + 0.5, rd, Filtering::Trilinear).unwrap_or_default();
 
         value.density = value.density.max(0.0);
-        value.color = Vec3::clamp(value.color * 0.5 + 0.5, Vec3::ZERO, Vec3::ONE);
+        value.color = match cfg.render_target {
+            RENDER_TARGET_COLOR
+                => value.color.clamp(Vec3::ZERO, Vec3::ONE),
+            RENDER_TARGET_DENSITY
+                => Vec3::splat(value.density),
+            _ => panic!("Invalid render target '{}'", cfg.render_target),
+        };
 
         value
     };
@@ -61,13 +67,15 @@ pub fn get_color(
     raymarch(ray.origin, ray.direction, near.max(0.0), far, color_fn, cfg.rm_settings)
 }
 
-pub fn render_cpu(
+pub fn render_multicpu(
     screen_width: usize, screen_height: usize,
-    field: &RadianceField, cfg: &RenderConfiguration,
+    field: &RadianceField, cfg: &RenderConfiguration, bench: &mut Bench,
 ) -> Vec<u8> {
     let mut image = Vec::with_capacity(screen_width * screen_height);
 
-    kdam::par_tqdm!((0..screen_width * screen_height).into_par_iter(), desc = "Rendering", position = 1)
+    bench.render.start();
+
+    kdam::par_tqdm!((0..screen_width * screen_height).into_par_iter(), desc = "Rendering")
         .map(|i| (i % screen_width, i / screen_width))
         .map(|(x, y)| vec2(
             ((2 * x) as f32 + 0.5) / (screen_width  - 1) as f32 - 1.0,
@@ -78,6 +86,35 @@ pub fn render_cpu(
         ).extend(1.0))
         .map(Color::from_vec4)
         .collect_into_vec(&mut image);
+    
+    println!();
+
+    bench.render.end();
+
+    bytemuck::allocation::cast_vec(image)
+}
+
+pub fn render_singlecpu(
+    screen_width: usize, screen_height: usize,
+    field: &RadianceField, cfg: &RenderConfiguration, bench: &mut Bench,
+) -> Vec<u8> {
+    bench.render.start();
+
+    let image = kdam::tqdm!(0..screen_width * screen_height, desc = "Rendering")
+        .map(|i| (i % screen_width, i / screen_width))
+        .map(|(x, y)| vec2(
+            ((2 * x) as f32 + 0.5) / (screen_width  - 1) as f32 - 1.0,
+            ((2 * y) as f32 + 0.5) / (screen_height - 1) as f32 - 1.0,
+        ))
+        .map(|coord| get_color(
+            coord, screen_width, screen_height, field, cfg,
+        ).extend(1.0))
+        .map(Color::from_vec4)
+        .collect();
+
+    println!();
+
+    bench.render.end();
 
     bytemuck::allocation::cast_vec(image)
 }

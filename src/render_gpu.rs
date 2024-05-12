@@ -1,7 +1,7 @@
 use crate::{
-    graphics::RenderConfiguration, spherical::RadianceField
+    benchmark::Bench, graphics::RenderConfiguration, spherical::RadianceField
 };
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 use bytemuck::{Pod, Zeroable};
 use glam::*;
 use serde::{Deserialize, Serialize};
@@ -32,11 +32,24 @@ impl std::fmt::Display for GpuContextMode {
     }
 }
 
-#[derive(Clone, Debug, Error)]
-pub enum ParseGpuContextModeError {
-    #[error("invalid GPU context mode '{0}', valid values are: 'debug', 'validation', 'silent'")]
-    InvalidArg(String),
+impl FromStr for GpuContextMode {
+    type Err = ParseGpuContextModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "debug" => Self::Debug,
+            "validation" => Self::ReleaseValidation,
+            "silent" => Self::ReleaseSilent,
+            _ => return Err(ParseGpuContextModeError(s.to_owned())),
+        })
+    }
 }
+
+
+
+#[derive(Clone, Debug, Error)]
+#[error("invalid GPU context mode '{0}', valid values are: 'debug', 'validation', 'silent'")]
+pub struct ParseGpuContextModeError(pub String);
 
 impl From<GpuContextMode> for wgpu::InstanceFlags {
     fn from(value: GpuContextMode) -> Self {
@@ -120,7 +133,7 @@ impl GpuContext {
 
 
 
-pub const BATCH_SIZE: usize = 128;
+pub const BATCH_SIZE: usize = 32;
 pub const N_TEXTURE_SLICES: usize = 9;
 
 
@@ -165,7 +178,8 @@ pub struct GpuRenderCfg {
     pub bounding_box_lo: Vec4,
     pub bounding_box_hi: Vec4,
     pub rm_settings_n_steps: u32,
-    pub _pad: Vec3,
+    pub render_target: u32,
+    pub _pad: [u32; 2],
 }
 
 impl From<&RenderConfiguration> for GpuRenderCfg {
@@ -179,7 +193,8 @@ impl From<&RenderConfiguration> for GpuRenderCfg {
             rm_settings_n_steps: value.rm_settings.n_steps,
             bounding_box_lo: value.bounding_box.lo.extend(0.0),
             bounding_box_hi: value.bounding_box.hi.extend(0.0),
-            _pad: Vec3::default(),
+            render_target: value.render_target,
+            _pad: [0; 2],
         }
     }
 }
@@ -188,10 +203,12 @@ impl From<&RenderConfiguration> for GpuRenderCfg {
 
 pub fn render_gpu(
     screen_width: usize, screen_height: usize, ctx: &GpuContext,
-    field: &RadianceField, cfg: &RenderConfiguration,
+    field: &RadianceField, cfg: &RenderConfiguration, bench: &mut Bench,
 ) -> Vec<u8> {
     use wgpu::*;
     use wgpu::util::*;
+
+    bench.copy.start();
 
     let cfg = GpuRenderCfg::from(cfg);
 
@@ -240,6 +257,8 @@ pub fn render_gpu(
     );
 
     let screen_view = screen_image.create_view(&Default::default());
+
+    eprintln!("Turning model into texture slices...");
 
     let field_texture_data = radiance_field_to_textures(field);
 
@@ -356,7 +375,7 @@ pub fn render_gpu(
         bounds_hi: Vec4,
         index: u32,
         n_passes: u32,
-        n_texture_slices: u32,
+        render_target: u32,
         _pad: u32,
     }
 
@@ -381,7 +400,13 @@ pub fn render_gpu(
 
     let n_passes = model_views.len();
 
+    bench.copy.end();
+
+    eprintln!("Rendering slices...");
+
     for (i, model_view) in model_views.iter().enumerate() {
+        bench.copy.start();
+
         let bind_group = ctx.device().create_bind_group(&BindGroupDescriptor {
             label: Some("bind_group"),
             layout: &bind_group_layout,
@@ -407,6 +432,10 @@ pub fn render_gpu(
 
         let mut encoder = ctx.device().create_command_encoder(&Default::default());
 
+        bench.copy.end();
+
+        bench.render.start();
+
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
 
@@ -419,7 +448,7 @@ pub fn render_gpu(
                 ),
                 index: i as u32,
                 n_passes: n_passes as u32,
-                n_texture_slices: N_TEXTURE_SLICES as u32,
+                render_target: cfg.render_target,
                 _pad: 0,
             };
 
@@ -436,7 +465,11 @@ pub fn render_gpu(
         ctx.device().poll(MaintainBase::wait_for(
             ctx.queue().submit([encoder.finish()]),
         ));
+        
+        bench.render.end();
     }
+
+    bench.copy.start();
 
     let mut encoder = ctx.device().create_command_encoder(&Default::default());
 
@@ -486,6 +519,8 @@ pub fn render_gpu(
         })
         .map(crate::graphics::Color::from_vec4)
         .collect_into_vec(&mut result);
+
+    bench.copy.end();
 
     bytemuck::allocation::cast_vec(result)
 }

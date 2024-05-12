@@ -102,6 +102,10 @@ struct CellValue {
 };
 
 
+#define RENDER_TARGET_COLOR 0
+#define RENDER_TARGET_DENSITY 1
+
+
 layout(rgba32f, set=0, binding=0) uniform image2D result_image;
 layout(rgba32f, set=0, binding=1) readonly uniform image3D model;
 layout(set=0, binding=2) uniform RenderConfiguration cfg;
@@ -112,6 +116,7 @@ layout(push_constant) uniform struct PushConst {
     vec4 bounds_hi;
     uint index;
     uint n_passes;
+    uint render_target;
 } push;
 
 vec4 read_model(vec3 pos, uint layer) {
@@ -169,10 +174,10 @@ vec4 eval(vec3 pos, vec3 rd) {
 
 CellValue get_cell_value(Ray ray) {
     vec4 value = eval(ray.origin + 0.5, ray.direction);
-    bool density_rendering = false;
+    bool density_rendering = push.render_target == RENDER_TARGET_DENSITY;
 
     if (!density_rendering) {
-        return CellValue(clamp(value.rgb * 0.5 + 0.5, 0.0, 1.0), max(value.a, 0.0));
+        return CellValue(clamp(value.rgb, 0.0, 1.0), max(value.a, 0.0));
     } else {
         return CellValue(vec3(max(value.a, 0.0)), max(value.a, 0.0));
     }
