@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.82"
-array-init = "2.1.0"
 bincode = "1.3.3"
 bytemuck = { version = "1.15.0", features = ["extern_crate_alloc", "derive"] }
 clap = "4.5.4"
@@ -17,6 +16,7 @@ kdam = { version = "0.5.1", features = ["rayon"] }
 png = "0.17.13"
 rayon = "1.10.0"
 serde = { version = "1.0.198", features = ["derive"] }
+smallvec = { version = "1.13.2", features = ["union"] }
 thiserror = "1.0.58"
 tokio = { version = "1.37.0", features = ["full"] }
-wgpu = { version = "0.19.4", features = ["glsl"] }
+wgpu = { version = "0.20.0", features = ["glsl"] }

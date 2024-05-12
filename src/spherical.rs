@@ -1,7 +1,7 @@
-use array_init::array_init;
 use serde::{Serialize, Deserialize};
 use bytemuck::{Pod, Zeroable};
 use glam::*;
+use std::array;
 
 
 
@@ -36,7 +36,7 @@ impl Cell {
             0.5462742 * (x * x - y * y),
         ]
     }
-    
+
     pub fn eval_sh(
         direction_values: &[f32; SPHERICAL_HARMONIC_WIDTH],
         sh: &[f32; SPHERICAL_HARMONIC_WIDTH],
@@ -78,9 +78,9 @@ impl std::ops::Add for Cell {
     fn add(self, rhs: Self) -> Self::Output {
         Self {
             density: self.density + rhs.density,
-            sh_r: array_init(|i| self.sh_r[i] + rhs.sh_r[i]),
-            sh_g: array_init(|i| self.sh_g[i] + rhs.sh_g[i]),
-            sh_b: array_init(|i| self.sh_b[i] + rhs.sh_b[i]),
+            sh_r: array::from_fn(|i| self.sh_r[i] + rhs.sh_r[i]),
+            sh_g: array::from_fn(|i| self.sh_g[i] + rhs.sh_g[i]),
+            sh_b: array::from_fn(|i| self.sh_b[i] + rhs.sh_b[i]),
         }
     }
 }

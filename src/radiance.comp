@@ -1,3 +1,227 @@
-void main() {
+#version 440
+
+layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
+
+
+struct Camera {
+    float distance;
+    float theta;
+    float phi;
+    float vfov;
+    vec3 target_pos;
+};
+
+vec3 Camera_spherical_to_cartesian(float radius, float theta, float phi) {
+    return radius * vec3(
+        sin(phi) * sin(theta),
+        cos(phi),
+        sin(phi) * cos(theta)
+    );
+}
+
+Ray Camera_shoot_ray(in Camera self, vec2 screen_coord, float aspect_ratio) {
+    vec3 camera_pos = self.target_pos + Camera_spherical_to_cartesian(
+        self.distance, self.theta, self.phi
+    );
+
+    vec3 camera_direction = normalize(self.target_pos - camera_pos);
+    vec3 camera_tangent = vec3(cos(self.theta), 0.0, -sin(self.theta));
+    vec3 camera_bitangent = cross(camera_direction, camera_tangent);
+
+    float fov_tan = tan(0.5 * self.vfov);
+    vec3 direction = normalize(camera_direction
+        + (screen_coord.x / aspect_ratio) * fov_tan * camera_tangent
+        + screen_coord.y * fov_tan * camera_bitangent);
+
+    return Ray(camera_pos, direction);
+}
+
+
+struct RaymarchSettings {
+    uint n_steps;
+};
+
+
+
+vec2 Aabb_intersect_ray(vec3 lo, vec3 hi, vec3 ro, vec3 rd) {
+    vec3 inverse_rd = 1.0 / rd;
     
+    vec3 lo = inverse_rd * (lo - ro);
+    vec3 hi = inverse_rd * (hi - ro);
+
+    float near = max(
+        max(
+            min(lo.x, hi.x),
+            min(lo.y, hi.y)
+        ),
+        min(lo.z, hi.z)
+    );
+    float far = min(
+        min(
+            max(lo.x, hi.x),
+            max(lo.y, hi.y)
+        ),
+        max(lo.z, hi.z)
+    );
+
+    return vec2(near, far);
+}
+
+
+struct RenderConfiguration {
+    float camera_distance;
+    float camera_theta;
+    float camera_phi;
+    float camera_vfov;
+    vec4 camera_target_pos;
+    vec4 bounding_box_lo;
+    vec4 bounding_box_hi;
+    uint rm_settings_n_steps;
+};
+
+
+struct PassConfiguration {
+    uint screen_width;
+    uint screen_height;
+};
+
+
+struct CellValue {
+    vec3 color;
+    float density;
+};
+
+
+layout(rgba32f, set=0, binding=0) uniform image2D result_image;
+layout(rgba32f, set=0, binding=1) readonly uniform image3D model;
+layout(set=0, binding=2) uniform RenderConfiguration cfg;
+layout(set=0, binding=3) uniform PassConfiguration pass;
+
+layout(push_constant) uniform struct PushConst {
+    vec4 bounds_lo;
+    vec4 bounds_hi;
+    uint index;
+    uint n_passes;
+} push;
+
+vec4 eval(vec3 pos, vec3 rd) {
+    ivec3 model_slice_size = imageSize(model);
+    model_slice_size.z /= 9;
+
+    ivec3 base_loc = ivec3(vec3(model_slice_size) * pos);
+
+    float values[9] = {
+        0.28209479,
+        -0.48860251 * rd.y,
+        0.48860251 * rd.z,
+        -0.48860251 * rd.x,
+        1.0925484 * rd.x * rd.y,
+        -1.0925484 * rd.y * rd.z,
+        0.31539157 * (2.0 * rd.z * rd.z - rd.x * rd.x - rd.y * rd.y),
+        -1.0925484 * rd.x * rd.z,
+        0.5462742 * (rd.x * rd.x - rd.y * rd.y),
+    };
+
+    vec4 color = vec4(0.0);
+
+    for (uint i = 0; i < 9; ++i) {
+        ivec3 loc = base_loc + ivec3(0, 0, int(i) * model_slice_size.z);
+        color += values[i] * imageLoad(model, loc);
+    }
+
+    color.a /= 9.0;
+
+    return color;
+}
+
+CellValue get_cell_value(Ray ray) {
+    vec4 value = eval(ray.origin + 0.5, ray.direction);
+    bool density_rendering = false;
+
+    return CellValue(vec3(1.0), 1.0);
+
+    if (!density_rendering) {
+        return CellValue(clamp(value.rgb * 0.5 + 0.5, 0.0, 1.0), max(value.a, 0.0));
+    } else {
+        return CellValue(vec3(max(value.a, 0.0)), max(value.a, 0.0));
+    }
+}
+
+vec4 raymarch(Ray ray, float near, float far) {
+    float step_size = (far - near) / float(cfg.rm_settings_n_steps);
+
+    vec3 color = vec3(0.0);
+    float density_sum = 0.0;
+
+    for (uint i = 0; i < cfg.rm_settings_n_steps; i++) {
+        vec3 pos = ray.origin + ray.direction * mix(
+            near, far, float(i) / float(cfg.rm_settings_n_steps - 1)
+        );
+
+        CellValue cell = get_cell_value(Ray(pos, ray.direction));
+
+        color += cell.color
+            * exp(-density_sum)
+            * (1.0 - exp(-cell.density * step_size));
+
+        density_sum += step_size * cell.density;
+    }
+
+    return vec4(color, density_sum);
+}
+
+Camera get_camera() {
+    return Camera(
+        cfg.camera_distance,
+        cfg.camera_theta,
+        cfg.camera_phi,
+        cfg.camera_vfov,
+        cfg.camera_target_pos.xyz
+    );
+}
+
+vec4 get_color(vec2 screen_coord) {
+    float aspect_ratio = float(pass.screen_width) / float(pass.screen_height);
+
+    Ray ray = Camera_shoot_ray(get_camera(), screen_coord, aspect_ratio);
+
+    vec2 hits = Aabb_intersect_ray(push.bounds_lo.xyz, push.bounds_hi.xyz, ray.origin, ray.direction);
+    float near = hits.x;
+    float far = hits.y;
+
+    return raymarch(ray, max(near, 0.0), far);
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.x
+        + gl_GlobalInvocationID.y * pass.screen_width
+        + gl_GlobalInvocationID.z * pass.screen_width * pass.screen_height;
+
+    vec2 screen_coord = vec2(
+        (float(2 * gl_GlobalInvocationID.x) + 0.5)
+            / float(pass.screen_width  - 1) - 1.0,
+        (float(2 * gl_GlobalInvocationID.y) + 0.5)
+            / float(pass.screen_height - 1) - 1.0
+    );
+
+    ivec2 screen_id = ivec2(gl_GlobalInvocationID.xy);
+
+    vec4 color = get_color(screen_coord);
+    vec4 prev_color = imageLoad(result_image, screen_id);
+
+    vec4 result_color = vec4(
+        prev_color.rgb + exp(-prev_color.a) * color.rgb,
+        prev_color.a + color.a
+    );
+
+    if (push.index == push.n_passes - 1) {
+        result_color.a = 1.0;
+    }
+
+    imageStore(result_image, screen_id, result_color);
 }
