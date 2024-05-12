@@ -31,8 +31,8 @@ pub fn make_textures(field: &RadianceField) -> [Vec<u8>; 9] {
 
 #[tokio::main]
 async fn main() -> AnyResult<()> {
-    let screen_width = 512;
-    let screen_height = 512;
+    let screen_width = 1024;
+    let screen_height = 1024;
 
     let field = bincode::deserialize::<RadianceField>(
         &tokio::fs::read("assets/model.bin").await?,
@@ -42,7 +42,8 @@ async fn main() -> AnyResult<()> {
 
     let cfg = RenderConfiguration {
         camera: Camera {
-            theta: 0.0 * (2.0 * std::f32::consts::PI),
+            theta: 0.5 * (2.0 * std::f32::consts::PI),
+            phi: 0.5 * std::f32::consts::PI,
             ..Default::default()
         },
         ..Default::default()

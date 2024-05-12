@@ -114,12 +114,38 @@ layout(push_constant) uniform struct PushConst {
     uint n_passes;
 } push;
 
+vec4 read_model(vec3 pos, uint layer) {
+    pos.xyz = pos.xzy;
+
+    ivec3 image_size = imageSize(model);
+    ivec3 batch_size = ivec3(image_size.xy, image_size.z / 9);
+
+    pos.z = float(push.n_passes) * pos.z - float(push.index);
+
+    ivec3 base_loc = ivec3(floor(vec3(batch_size) * pos));
+    vec3 a = fract(vec3(batch_size) * pos);
+    vec3 na = 1.0 - a;
+
+    vec4 lll = imageLoad(model, base_loc + ivec3(0, 0, int(layer) * batch_size.z));
+    vec4 llh = imageLoad(model, base_loc + ivec3(0, 0, int(layer) * batch_size.z) + 1);
+    vec4 lhl = imageLoad(model, base_loc + ivec3(0, 1, int(layer) * batch_size.z));
+    vec4 lhh = imageLoad(model, base_loc + ivec3(0, 1, int(layer) * batch_size.z) + 1);
+    vec4 hll = imageLoad(model, base_loc + ivec3(1, 0, int(layer) * batch_size.z));
+    vec4 hlh = imageLoad(model, base_loc + ivec3(1, 0, int(layer) * batch_size.z) + 1);
+    vec4 hhl = imageLoad(model, base_loc + ivec3(1, 1, int(layer) * batch_size.z));
+    vec4 hhh = imageLoad(model, base_loc + ivec3(1, 1, int(layer) * batch_size.z) + 1);
+
+    return lll * na.x * na.y * na.z
+         + llh * na.x * na.y * a.z
+         + lhl * na.x * a.y * na.z
+         + lhh * na.x * a.y * a.z
+         + hll * a.x * na.y * na.z
+         + hlh * a.x * na.y * a.z
+         + hhl * a.x * a.y * na.z
+         + hhh * a.x * a.y * a.z;
+}
+
 vec4 eval(vec3 pos, vec3 rd) {
-    ivec3 model_slice_size = imageSize(model);
-    model_slice_size.z /= 9;
-
-    ivec3 base_loc = ivec3(vec3(model_slice_size) * pos);
-
     float values[9] = {
         0.28209479,
         -0.48860251 * rd.y,
@@ -135,11 +161,8 @@ vec4 eval(vec3 pos, vec3 rd) {
     vec4 color = vec4(0.0);
 
     for (uint i = 0; i < 9; ++i) {
-        ivec3 loc = base_loc + ivec3(0, 0, int(i) * model_slice_size.z);
-        color += values[i] * imageLoad(model, loc);
+        color += values[i] * read_model(pos, i);
     }
-
-    color.a /= 9.0;
 
     return color;
 }
@@ -147,8 +170,6 @@ vec4 eval(vec3 pos, vec3 rd) {
 CellValue get_cell_value(Ray ray) {
     vec4 value = eval(ray.origin + 0.5, ray.direction);
     bool density_rendering = false;
-
-    return CellValue(vec3(1.0), 0.5);
 
     if (!density_rendering) {
         return CellValue(clamp(value.rgb * 0.5 + 0.5, 0.0, 1.0), max(value.a, 0.0));

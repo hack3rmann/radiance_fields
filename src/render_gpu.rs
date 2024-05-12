@@ -120,17 +120,20 @@ impl GpuContext {
 
 
 
+pub const BATCH_SIZE: usize = 128;
+pub const N_TEXTURE_SLICES: usize = 9;
+
+
+
 pub fn radiance_field_to_textures(field: &RadianceField) -> Vec<Vec<[f32; 4]>> {
-    const BATCH_SIZE: usize = 64;
-    
     assert!(field.size() % BATCH_SIZE == 0, "radiance field size should be divisible by {BATCH_SIZE}");
+
+    let batch_volume = field.size().pow(2) * BATCH_SIZE;
 
     (0..field.size() / BATCH_SIZE)
         .map(|batch_index| {
-            let volume = field.size() * field.size() * BATCH_SIZE;
-            let batch = &field.cells[batch_index * volume..(batch_index + 1) * volume];
-
-            const N_TEXTURE_SLICES: usize = 9;
+            let batch = &field.cells[batch_index * batch_volume
+                                  ..(batch_index + 1) * batch_volume];
 
             (0..N_TEXTURE_SLICES)
                 .into_par_iter()
@@ -140,7 +143,7 @@ pub fn radiance_field_to_textures(field: &RadianceField) -> Vec<Vec<[f32; 4]>> {
                             cell.sh_r[i],
                             cell.sh_g[i],
                             cell.sh_b[i],
-                            cell.density,
+                            cell.density / N_TEXTURE_SLICES as f32,
                         ])
                 })
                 .collect::<Vec<_>>()
@@ -238,14 +241,12 @@ pub fn render_gpu(
 
     let screen_view = screen_image.create_view(&Default::default());
 
-    const BATCH_SIZE: usize = 64;
-
     let field_texture_data = radiance_field_to_textures(field);
 
     let field_texture_size = Extent3d {
         width: field.size() as u32,
         height: field.size() as u32,
-        depth_or_array_layers: (BATCH_SIZE * 9) as u32,
+        depth_or_array_layers: (BATCH_SIZE * N_TEXTURE_SLICES) as u32,
     };
 
     let model_textures = field_texture_data.iter().map(|texture_data| {
@@ -271,6 +272,7 @@ pub fn render_gpu(
             label: Some("mode_view"),
             format: Some(TextureFormat::Rgba32Float),
             dimension: Some(TextureViewDimension::D3),
+            aspect: TextureAspect::All,
             ..Default::default()
         })
     }).collect::<Vec<_>>();
@@ -354,7 +356,8 @@ pub fn render_gpu(
         bounds_hi: Vec4,
         index: u32,
         n_passes: u32,
-        _pad: [u32; 2],
+        n_texture_slices: u32,
+        _pad: u32,
     }
 
     let pipeline_layout = ctx.device().create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -409,14 +412,15 @@ pub fn render_gpu(
 
             let push = PushConst {
                 bounds_lo: Vec4::new(
-                    -0.5, -0.5, i as f32 / n_passes as f32 - 0.5, 0.0,
+                    -0.5, i as f32 / n_passes as f32 - 0.5, -0.5, 0.0,
                 ),
                 bounds_hi: Vec4::new(
-                    0.5, 0.5, (i + 1) as f32 / n_passes as f32 - 0.5, 0.0,
+                    0.5, (i + 1) as f32 / n_passes as f32 - 0.5, 0.5, 0.0,
                 ),
                 index: i as u32,
                 n_passes: n_passes as u32,
-                _pad: [0; 2],
+                n_texture_slices: N_TEXTURE_SLICES as u32,
+                _pad: 0,
             };
 
             pass.set_bind_group(0, &bind_group, &[]);
